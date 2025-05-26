@@ -19,6 +19,7 @@ enum AppScreen {
     Main,
     Settings,
     FileManager,
+    TextAnalyzer,
 }
 
 #[derive(Default)]
@@ -47,6 +48,125 @@ impl Default for AppScreen {
 }
 
 impl MyApp {
+    fn render_text_analyzer_screen(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Text Analyzer");
+        ui.separator();
+
+        // Split the content horizontally using columns
+        ui.columns(2, |columns| {
+            // Left column - Text Area 1 analysis
+            columns[0].group(|ui| {
+                ui.vertical(|ui| {
+                    ui.label("Text Area 1 - Line by Line:");
+                    ui.add_space(5.0);
+
+                    let lines_1: Vec<&str> = self.text_area_1.split('\n').collect();
+
+                    egui::ScrollArea::vertical()
+                        .max_height(350.0)
+                        .show(ui, |ui| {
+                            if lines_1.is_empty() || (lines_1.len() == 1 && lines_1[0].is_empty()) {
+                                ui.label("No text content to analyze");
+                            } else {
+                                for (i, line) in lines_1.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("{}:", i + 1));
+                                        if line.is_empty() {
+                                            ui.label("(empty line)");
+                                        } else {
+                                            ui.label(format!("\"{}\"", line));
+                                        }
+                                    });
+                                }
+                            }
+                        });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.label(format!("Total lines: {}", lines_1.len()));
+                    ui.label(format!(
+                        "Non-empty lines: {}",
+                        lines_1.iter().filter(|&line| !line.is_empty()).count()
+                    ));
+                    ui.label(format!(
+                        "Empty lines: {}",
+                        lines_1.iter().filter(|&line| line.is_empty()).count()
+                    ));
+                });
+            });
+
+            // Right column - Text Area 2 analysis
+            columns[1].group(|ui| {
+                ui.vertical(|ui| {
+                    ui.label("Text Area 2 - Line by Line:");
+                    ui.add_space(5.0);
+
+                    let lines_2: Vec<&str> = self.text_area_2.split('\n').collect();
+
+                    egui::ScrollArea::vertical()
+                        .max_height(350.0)
+                        .show(ui, |ui| {
+                            if lines_2.is_empty() || (lines_2.len() == 1 && lines_2[0].is_empty()) {
+                                ui.label("No text content to analyze");
+                            } else {
+                                for (i, line) in lines_2.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("{}:", i + 1));
+                                        if line.is_empty() {
+                                            ui.label("(empty line)");
+                                        } else {
+                                            ui.label(format!("\"{}\"", line));
+                                        }
+                                    });
+                                }
+                            }
+                        });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.label(format!("Total lines: {}", lines_2.len()));
+                    ui.label(format!(
+                        "Non-empty lines: {}",
+                        lines_2.iter().filter(|&line| !line.is_empty()).count()
+                    ));
+                    ui.label(format!(
+                        "Empty lines: {}",
+                        lines_2.iter().filter(|&line| line.is_empty()).count()
+                    ));
+                });
+            });
+        });
+
+        ui.add_space(20.0);
+
+        // Overall statistics
+        ui.separator();
+        ui.group(|ui| {
+            ui.label("Combined Statistics:");
+            let total_lines_1 = self.text_area_1.split('\n').count();
+            let total_lines_2 = self.text_area_2.split('\n').count();
+            let total_chars_1 = self.text_area_1.len();
+            let total_chars_2 = self.text_area_2.len();
+
+            ui.label(format!(
+                "Total lines across both areas: {}",
+                total_lines_1 + total_lines_2
+            ));
+            ui.label(format!(
+                "Total characters across both areas: {}",
+                total_chars_1 + total_chars_2
+            ));
+            ui.label(format!(
+                "Average line length: {:.1} characters",
+                if total_lines_1 + total_lines_2 > 0 {
+                    (total_chars_1 + total_chars_2) as f32 / (total_lines_1 + total_lines_2) as f32
+                } else {
+                    0.0
+                }
+            ));
+        });
+    }
+
     fn render_main_screen(&mut self, ui: &mut egui::Ui) {
         ui.heading("Text Editor with MP3 File Selector");
         ui.separator();
@@ -55,6 +175,7 @@ impl MyApp {
         ui.group(|ui| {
             ui.label("Text Area 1:");
             egui::ScrollArea::vertical()
+                .id_source("0")
                 .max_height(150.0)
                 .show(ui, |ui| {
                     ui.add(
@@ -102,6 +223,7 @@ impl MyApp {
         ui.group(|ui| {
             ui.label("Text Area 2:");
             egui::ScrollArea::vertical()
+                .id_source("1")
                 .max_height(150.0)
                 .show(ui, |ui| {
                     ui.add(
@@ -144,6 +266,12 @@ impl MyApp {
         });
 
         ui.add_space(20.0);
+
+        // Navigation to Text Analyzer
+        ui.separator();
+        if ui.button("🔍 Analyze Text Content").clicked() {
+            self.current_screen = AppScreen::TextAnalyzer;
+        }
 
         // Status section
         ui.separator();
@@ -330,6 +458,11 @@ impl MyApp {
                 AppScreen::FileManager,
                 "📁 File Manager",
             );
+            ui.selectable_value(
+                &mut self.current_screen,
+                AppScreen::TextAnalyzer,
+                "🔍 Text Analyzer",
+            );
         });
         ui.separator();
     }
@@ -345,6 +478,7 @@ impl eframe::App for MyApp {
                 AppScreen::Main => self.render_main_screen(ui),
                 AppScreen::Settings => self.render_settings_screen(ui),
                 AppScreen::FileManager => self.render_file_manager_screen(ui),
+                AppScreen::TextAnalyzer => self.render_text_analyzer_screen(ui),
             }
         });
     }
