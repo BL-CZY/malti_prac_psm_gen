@@ -1,6 +1,9 @@
 use eframe::egui;
 use std::path::PathBuf;
 
+pub mod analyze;
+pub mod other;
+
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 600.0]),
@@ -39,6 +42,19 @@ struct MyApp {
 
     // File manager screen data
     file_history: Vec<PathBuf>,
+
+    // analysis
+    analysis_data: AnalysisData,
+}
+
+#[derive(Default)]
+struct AnalysisData {
+    text_entries_1: Vec<String>,
+    text_entries_2: Vec<String>,
+    audio_clips_1: Vec<PathBuf>,
+    audio_clips_2: Vec<PathBuf>,
+    is_processing: bool,
+    processing_status: String,
 }
 
 impl Default for AppScreen {
@@ -48,125 +64,6 @@ impl Default for AppScreen {
 }
 
 impl MyApp {
-    fn render_text_analyzer_screen(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Text Analyzer");
-        ui.separator();
-
-        // Split the content horizontally using columns
-        ui.columns(2, |columns| {
-            // Left column - Text Area 1 analysis
-            columns[0].group(|ui| {
-                ui.vertical(|ui| {
-                    ui.label("Text Area 1 - Line by Line:");
-                    ui.add_space(5.0);
-
-                    let lines_1: Vec<&str> = self.text_area_1.split('\n').collect();
-
-                    egui::ScrollArea::vertical()
-                        .max_height(350.0)
-                        .show(ui, |ui| {
-                            if lines_1.is_empty() || (lines_1.len() == 1 && lines_1[0].is_empty()) {
-                                ui.label("No text content to analyze");
-                            } else {
-                                for (i, line) in lines_1.iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("{}:", i + 1));
-                                        if line.is_empty() {
-                                            ui.label("(empty line)");
-                                        } else {
-                                            ui.label(format!("\"{}\"", line));
-                                        }
-                                    });
-                                }
-                            }
-                        });
-
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.label(format!("Total lines: {}", lines_1.len()));
-                    ui.label(format!(
-                        "Non-empty lines: {}",
-                        lines_1.iter().filter(|&line| !line.is_empty()).count()
-                    ));
-                    ui.label(format!(
-                        "Empty lines: {}",
-                        lines_1.iter().filter(|&line| line.is_empty()).count()
-                    ));
-                });
-            });
-
-            // Right column - Text Area 2 analysis
-            columns[1].group(|ui| {
-                ui.vertical(|ui| {
-                    ui.label("Text Area 2 - Line by Line:");
-                    ui.add_space(5.0);
-
-                    let lines_2: Vec<&str> = self.text_area_2.split('\n').collect();
-
-                    egui::ScrollArea::vertical()
-                        .max_height(350.0)
-                        .show(ui, |ui| {
-                            if lines_2.is_empty() || (lines_2.len() == 1 && lines_2[0].is_empty()) {
-                                ui.label("No text content to analyze");
-                            } else {
-                                for (i, line) in lines_2.iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("{}:", i + 1));
-                                        if line.is_empty() {
-                                            ui.label("(empty line)");
-                                        } else {
-                                            ui.label(format!("\"{}\"", line));
-                                        }
-                                    });
-                                }
-                            }
-                        });
-
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.label(format!("Total lines: {}", lines_2.len()));
-                    ui.label(format!(
-                        "Non-empty lines: {}",
-                        lines_2.iter().filter(|&line| !line.is_empty()).count()
-                    ));
-                    ui.label(format!(
-                        "Empty lines: {}",
-                        lines_2.iter().filter(|&line| line.is_empty()).count()
-                    ));
-                });
-            });
-        });
-
-        ui.add_space(20.0);
-
-        // Overall statistics
-        ui.separator();
-        ui.group(|ui| {
-            ui.label("Combined Statistics:");
-            let total_lines_1 = self.text_area_1.split('\n').count();
-            let total_lines_2 = self.text_area_2.split('\n').count();
-            let total_chars_1 = self.text_area_1.len();
-            let total_chars_2 = self.text_area_2.len();
-
-            ui.label(format!(
-                "Total lines across both areas: {}",
-                total_lines_1 + total_lines_2
-            ));
-            ui.label(format!(
-                "Total characters across both areas: {}",
-                total_chars_1 + total_chars_2
-            ));
-            ui.label(format!(
-                "Average line length: {:.1} characters",
-                if total_lines_1 + total_lines_2 > 0 {
-                    (total_chars_1 + total_chars_2) as f32 / (total_lines_1 + total_lines_2) as f32
-                } else {
-                    0.0
-                }
-            ));
-        });
-    }
-
     fn render_main_screen(&mut self, ui: &mut egui::Ui) {
         ui.heading("Text Editor with MP3 File Selector");
         ui.separator();
@@ -271,6 +168,7 @@ impl MyApp {
         ui.separator();
         if ui.button("🔍 Analyze Text Content").clicked() {
             self.current_screen = AppScreen::TextAnalyzer;
+            self.handle_analyze_text();
         }
 
         // Status section
@@ -349,122 +247,6 @@ impl MyApp {
                 self.mp3_file_2 = None;
             }
         });
-    }
-
-    fn render_file_manager_screen(&mut self, ui: &mut egui::Ui) {
-        ui.heading("File Manager");
-        ui.separator();
-
-        ui.group(|ui| {
-            ui.label("Currently Selected Files");
-            ui.add_space(5.0);
-
-            let mut clear_file_1 = false;
-            let mut clear_file_2 = false;
-
-            if let Some(path) = &self.mp3_file_1 {
-                ui.horizontal(|ui| {
-                    ui.label("MP3 File 1:");
-                    ui.label(path.display().to_string());
-                    if ui.button("Remove").clicked() {
-                        clear_file_1 = true;
-                    }
-                });
-            } else {
-                ui.label("MP3 File 1: Not selected");
-            }
-
-            if let Some(path) = &self.mp3_file_2 {
-                ui.horizontal(|ui| {
-                    ui.label("MP3 File 2:");
-                    ui.label(path.display().to_string());
-                    if ui.button("Remove").clicked() {
-                        clear_file_2 = true;
-                    }
-                });
-            } else {
-                ui.label("MP3 File 2: Not selected");
-            }
-
-            if clear_file_1 {
-                self.mp3_file_1 = None;
-            }
-            if clear_file_2 {
-                self.mp3_file_2 = None;
-            }
-        });
-
-        ui.add_space(20.0);
-
-        ui.group(|ui| {
-            ui.label("File History");
-            ui.add_space(5.0);
-
-            if self.file_history.is_empty() {
-                ui.label("No files in history");
-            } else {
-                let mut to_remove = None;
-                let mut select_file_1 = None;
-                let mut select_file_2 = None;
-
-                egui::ScrollArea::vertical()
-                    .max_height(200.0)
-                    .show(ui, |ui| {
-                        for (i, path) in self.file_history.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("{}. {}", i + 1, path.display()));
-
-                                if ui.button("Select as File 1").clicked() {
-                                    select_file_1 = Some(path.clone());
-                                }
-
-                                if ui.button("Select as File 2").clicked() {
-                                    select_file_2 = Some(path.clone());
-                                }
-
-                                if ui.button("Remove").clicked() {
-                                    to_remove = Some(i);
-                                }
-                            });
-                        }
-                    });
-
-                if let Some(index) = to_remove {
-                    self.file_history.remove(index);
-                }
-
-                if let Some(path) = select_file_1 {
-                    self.mp3_file_1 = Some(path);
-                }
-
-                if let Some(path) = select_file_2 {
-                    self.mp3_file_2 = Some(path);
-                }
-
-                ui.add_space(10.0);
-                if ui.button("Clear History").clicked() {
-                    self.file_history.clear();
-                }
-            }
-        });
-    }
-
-    fn render_navigation(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.current_screen, AppScreen::Main, "📝 Main");
-            ui.selectable_value(&mut self.current_screen, AppScreen::Settings, "⚙️ Settings");
-            ui.selectable_value(
-                &mut self.current_screen,
-                AppScreen::FileManager,
-                "📁 File Manager",
-            );
-            ui.selectable_value(
-                &mut self.current_screen,
-                AppScreen::TextAnalyzer,
-                "🔍 Text Analyzer",
-            );
-        });
-        ui.separator();
     }
 }
 
