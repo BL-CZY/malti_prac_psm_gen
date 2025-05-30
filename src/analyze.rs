@@ -58,6 +58,7 @@ impl MyApp {
     // Convert MP3 to WAV and split by 2-second gaps
     fn process_mp3_file(&self, mp3_path: &Path, file_id: u8) -> Result<Vec<PathBuf>, String> {
         let temp_dir = std::env::temp_dir().join(format!("audio_analysis_{}", file_id));
+        let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir)
             .map_err(|e| format!("Failed to create temp directory: {}", e))?;
 
@@ -100,38 +101,36 @@ impl MyApp {
         std::fs::create_dir_all(&clips_dir)
             .map_err(|e| format!("Failed to create clips directory: {}", e))?;
 
-        let split_result = Command::new("ffmpeg")
-            .args([
-                "-i",
-                wav_path.to_str().unwrap(),
-                "-af",
-                "silencedetect=noise=-30dB:duration=2.0",
-                "-f",
-                "segment",
-                "-segment_time",
-                "30", // Max segment length as fallback
-                "-reset_timestamps",
-                "1",
-                "-map",
-                "0:a",
-                "-c:a",
-                "pcm_s16le",
-                clips_dir.join("clip_%03d.wav").to_str().unwrap(),
-            ])
-            .output();
+        let split_result = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!(r#"ffmpeg -i {} -af silencedetect=d=2 -f null - |& awk '/silencedetect/ {{print $5}}'"#,wav_path.to_str().unwrap()))
+            .output().unwrap();
 
-        match split_result {
-            Ok(output) => {
-                if !output.status.success() {
-                    // Fallback: simple time-based splitting if silence detection fails
-                    self.split_wav_by_time(&wav_path, &clips_dir)?;
-                }
-            }
-            Err(_) => {
-                // Fallback: simple time-based splitting
-                self.split_wav_by_time(&wav_path, &clips_dir)?;
-            }
-        }
+        let res = split_result;
+        let stops_str = String::from_utf8_lossy(&res.stdout);
+
+        let mut stops: Vec<f64> = stops_str
+            .split("\n")
+            .map(|str| str.parse::<f64>().unwrap_or(0.0f64))
+            .collect();
+
+        stops.pop();
+        stops.insert(0, 0.0f64);
+
+        stops.windows(2).enumerate().for_each(|(i, stps)| {
+            let _ = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(format!(
+                    "ffmpeg -i {} -ss {} -t {} {}",
+                    wav_path.to_str().unwrap(),
+                    stps[0],
+                    stps[1],
+                    clips_dir.join(format!("{}.wav", i)).to_str().unwrap()
+                ))
+                .spawn();
+
+            println!("{}", clips_dir.join(format!("{}.wav", i)).to_str().unwrap());
+        });
 
         // Collect all generated clip files
         let mut clips = Vec::new();
@@ -148,74 +147,6 @@ impl MyApp {
 
         clips.sort();
         Ok(clips)
-    }
-
-    // Fallback method: split WAV by fixed time intervals
-    fn split_wav_by_time(&self, wav_path: &Path, output_dir: &Path) -> Result<(), String> {
-        // Get audio duration first
-        let duration_output = Command::new("ffprobe")
-            .args([
-                "-v",
-                "quiet",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                wav_path.to_str().unwrap(),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to get audio duration: {}", e))?;
-
-        let duration_str = String::from_utf8_lossy(&duration_output.stdout);
-        let total_duration: f64 = duration_str
-            .trim()
-            .parse()
-            .map_err(|e| format!("Failed to parse duration: {}", e))?;
-
-        // Split into 10-second chunks (adjustable)
-        let chunk_duration = 10.0;
-        let mut start_time = 0.0;
-        let mut clip_index = 0;
-
-        while start_time < total_duration {
-            let output_file = output_dir.join(format!("clip_{:03}.wav", clip_index));
-
-            let split_result = Command::new("ffmpeg")
-                .args([
-                    "-i",
-                    wav_path.to_str().unwrap(),
-                    "-ss",
-                    &start_time.to_string(),
-                    "-t",
-                    &chunk_duration.to_string(),
-                    "-c",
-                    "copy",
-                    output_file.to_str().unwrap(),
-                    "-y",
-                ])
-                .output();
-
-            match split_result {
-                Ok(output) => {
-                    if !output.status.success() {
-                        eprintln!(
-                            "Warning: Failed to create clip {}: {}",
-                            clip_index,
-                            String::from_utf8_lossy(&output.stderr)
-                        );
-                    }
-                }
-                Err(e) => eprintln!(
-                    "Warning: Failed to run FFmpeg for clip {}: {}",
-                    clip_index, e
-                ),
-            }
-
-            start_time += chunk_duration;
-            clip_index += 1;
-        }
-
-        Ok(())
     }
 
     // Modified analysis screen renderer
