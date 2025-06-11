@@ -60,10 +60,15 @@ impl MyApp {
         let a = combine_clips_alternately(
             &self.analysis_data.audio_clips_1,
             &self.analysis_data.audio_clips_2,
-            &temp_dir(),
-        );
+            &self.analysis_data.text_entries_1,
+            &self.analysis_data.text_entries_2,
+            &temp_dir().join("audio.wav"),
+            &temp_dir().join("stops.json"),
+        )
+        .unwrap();
 
         println!("{:?}", a);
+
         self.current_screen = AppScreen::TextAnalyzer;
     }
 
