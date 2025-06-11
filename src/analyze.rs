@@ -1,10 +1,11 @@
 use std::{
+    env::temp_dir,
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
 
-use crate::{AppScreen, MyApp};
+use crate::{AppScreen, MyApp, combine::combine_clips_alternately};
 
 impl MyApp {
     // Handler for the analyze text button
@@ -28,7 +29,11 @@ impl MyApp {
         // Process MP3 files if they exist
         if let Some(mp3_path) = &self.mp3_file_1 {
             match self.process_mp3_file(mp3_path, 1) {
-                Ok(clips) => self.analysis_data.audio_clips_1 = clips,
+                Ok(clips) => {
+                    println!("{:?}", clips);
+                    self.analysis_data.audio_clips_1 = clips;
+                    println!("{:?}", self.analysis_data.audio_clips_1);
+                }
                 Err(e) => {
                     self.analysis_data.processing_status =
                         format!("Error processing MP3 file 1: {}", e);
@@ -52,6 +57,13 @@ impl MyApp {
 
         self.analysis_data.is_processing = false;
         self.analysis_data.processing_status = "Processing completed!".to_string();
+        let a = combine_clips_alternately(
+            &self.analysis_data.audio_clips_1,
+            &self.analysis_data.audio_clips_2,
+            &temp_dir(),
+        );
+
+        println!("{:?}", a);
         self.current_screen = AppScreen::TextAnalyzer;
     }
 
@@ -115,21 +127,20 @@ impl MyApp {
             .collect();
 
         stops.pop();
+        stops.pop();
         stops.insert(0, 0.0f64);
 
-        stops.windows(2).enumerate().for_each(|(i, stps)| {
+        stops.chunks(2).enumerate().for_each(|(i, stps)| {
             let _ = Command::new("/bin/sh")
                 .arg("-c")
                 .arg(format!(
                     "ffmpeg -i {} -ss {} -t {} {}",
                     wav_path.to_str().unwrap(),
                     stps[0],
-                    stps[1],
+                    stps[1] - stps[0],
                     clips_dir.join(format!("{}.wav", i)).to_str().unwrap()
                 ))
-                .spawn();
-
-            println!("{}", clips_dir.join(format!("{}.wav", i)).to_str().unwrap());
+                .output();
         });
 
         // Collect all generated clip files
@@ -139,14 +150,25 @@ impl MyApp {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if path.extension().and_then(|s| s.to_str()) == Some("wav") {
-                        clips.push(path);
+                        let num = path
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .split_once(".")
+                            .unwrap()
+                            .0
+                            .parse::<u32>()
+                            .unwrap();
+                        clips.push((num, path));
                     }
                 }
             }
         }
 
-        clips.sort();
-        Ok(clips)
+        clips.sort_by(|a, b| a.0.cmp(&b.0));
+
+        Ok(clips.iter().map(|ele| ele.1.clone()).collect())
     }
 
     // Modified analysis screen renderer

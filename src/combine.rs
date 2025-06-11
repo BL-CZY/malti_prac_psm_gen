@@ -1,0 +1,132 @@
+use hound::{WavReader, WavSpec, WavWriter};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// Combines segments of clips together alternately with 1-second gaps
+///
+/// # Arguments
+/// * `clips1` - First list of paths to .wav files
+/// * `clips2` - Second list of paths to .wav files (must be same length as clips1)
+/// * `output_path` - Path where the combined file will be saved
+///
+/// # Returns
+/// * `Result<(PathBuf, Vec<f64>), Box<dyn std::error::Error>>` - The output path and starting times in seconds
+pub fn combine_clips_alternately(
+    clips1: &[PathBuf],
+    clips2: &[PathBuf],
+    output_path: &Path,
+) -> Result<(PathBuf, Vec<f64>), Box<dyn std::error::Error>> {
+    if clips1.len() != clips2.len() {
+        return Err("Input lists must have the same length".into());
+    }
+
+    if clips1.is_empty() {
+        return Err("Input lists cannot be empty".into());
+    }
+
+    // Clean existing file if it exists
+    if output_path.exists() {
+        fs::remove_file(output_path)?;
+    }
+
+    // Read the first file to get the audio specification
+    let first_reader = WavReader::open(&clips1[0])?;
+    let spec = first_reader.spec();
+
+    // Validate that all files have the same specification
+    for (i, clip_path) in clips1.iter().chain(clips2.iter()).enumerate() {
+        let reader = WavReader::open(clip_path)?;
+        if reader.spec() != spec {
+            return Err(format!("File {} has different audio specification", i).into());
+        }
+    }
+
+    // Create output writer
+    let mut writer = WavWriter::create(output_path, spec)?;
+
+    let sample_rate = spec.sample_rate as f64;
+    let channels = spec.channels as usize;
+    let gap_samples = (sample_rate * channels as f64) as usize; // 1 second gap
+
+    let mut current_time = 0.0;
+    let mut start_times = Vec::new();
+
+    // Process clips alternately
+    for i in 0..clips1.len() {
+        // Process clip from first list
+        start_times.push(current_time);
+        let duration1 = write_clip_to_output(&mut writer, &clips1[i], &spec)?;
+        current_time += duration1;
+
+        // Add 1-second gap
+        write_silence(&mut writer, gap_samples)?;
+        current_time += 1.0;
+
+        // Process clip from second list
+        start_times.push(current_time);
+        let duration2 = write_clip_to_output(&mut writer, &clips2[i], &spec)?;
+        current_time += duration2;
+
+        // Add 1-second gap after each pair (except the last one)
+        if i < clips1.len() - 1 {
+            write_silence(&mut writer, gap_samples)?;
+            current_time += 1.0;
+        }
+    }
+
+    writer.finalize()?;
+
+    Ok((output_path.to_path_buf(), start_times))
+}
+
+/// Writes a single clip to the output writer and returns its duration in seconds
+fn write_clip_to_output(
+    writer: &mut WavWriter<std::io::BufWriter<std::fs::File>>,
+    clip_path: &Path,
+    expected_spec: &WavSpec,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let mut reader = WavReader::open(clip_path)?;
+
+    let sample_count = reader.len() as f64;
+    let duration =
+        sample_count / (expected_spec.sample_rate as f64 * expected_spec.channels as f64);
+
+    // Write samples based on the bit depth
+    match expected_spec.bits_per_sample {
+        16 => {
+            for sample in reader.samples::<i16>() {
+                writer.write_sample(sample?)?;
+            }
+        }
+        24 => {
+            for sample in reader.samples::<i32>() {
+                writer.write_sample(sample?)?;
+            }
+        }
+        32 => {
+            if expected_spec.sample_format == hound::SampleFormat::Float {
+                for sample in reader.samples::<f32>() {
+                    writer.write_sample(sample?)?;
+                }
+            } else {
+                for sample in reader.samples::<i32>() {
+                    writer.write_sample(sample?)?;
+                }
+            }
+        }
+        _ => return Err("Unsupported bit depth".into()),
+    }
+
+    Ok(duration)
+}
+
+/// Writes silence (zeros) for the specified number of samples
+fn write_silence(
+    writer: &mut WavWriter<std::io::BufWriter<std::fs::File>>,
+    sample_count: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 0..sample_count {
+        writer.write_sample(0i16)?; // Writing zero samples as silence
+    }
+    Ok(())
+}

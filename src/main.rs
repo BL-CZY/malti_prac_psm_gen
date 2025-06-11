@@ -2,6 +2,7 @@ use eframe::egui;
 use std::path::PathBuf;
 
 pub mod analyze;
+pub mod combine;
 pub mod other;
 
 fn main() -> Result<(), eframe::Error> {
