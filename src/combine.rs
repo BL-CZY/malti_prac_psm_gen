@@ -70,12 +70,13 @@ pub fn combine_clips_alternately(
     for i in 0..clips1.len() {
         // Process clip from first list
         let duration1 = write_clip_to_output(&mut writer, &clips1[i], &spec)?;
-        current_time += duration1;
 
         result_elements.push(ResultElement {
             sentence: entries1[i].clone(),
             audio_stop: current_time,
         });
+
+        current_time += duration1;
 
         // Add 1-second gap
         write_silence(&mut writer, gap_samples)?;
@@ -83,12 +84,13 @@ pub fn combine_clips_alternately(
 
         // Process clip from second list
         let duration2 = write_clip_to_output(&mut writer, &clips2[i], &spec)?;
-        current_time += duration2;
 
         result_elements.push(ResultElement {
             sentence: entries2[i].clone(),
             audio_stop: current_time,
         });
+
+        current_time += duration2;
 
         // Add 1-second gap after each pair (except the last one)
         if i < clips1.len() - 1 {
